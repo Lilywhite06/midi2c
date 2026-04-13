@@ -1,18 +1,16 @@
 # midi2c
 # MIDI-to-C Array Converter
 
-A lightweight, robust C tool for converting Standard MIDI Files (.mid) into C arrays for embedded systems.
+A C tool created by Gemini for converting Standard MIDI Files (.mid) into C arrays for embedded systems.
 
 ## Features
 - **Monophonic Extraction**: Perfectly suited for PWM buzzers on STM32, Arduino, etc.
-- **High Precision**: 64-bit timing calculations to prevent millisecond drift.
-- **Robustness**: Handles Running Status, SysEx skips, and Multi-track (Format 1) files.
 - **CLI Support**: Easily switch input files via command line.
 
 ## Usage
 
 ### 1. Compile
-Using GCC (MinGW or Linux):
+Using GCC (MinGW, Linux or other):
 ```bash
 gcc midi2c.c -o midi2c
 ```
@@ -35,7 +33,6 @@ typedef struct {
     uint32_t duration; // Duration in milliseconds
 } AudioNote_t;
 ```
-
 
 Simply paste the generated array into your project's ```main.c``` and use your audio driver to play it.
 

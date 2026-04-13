@@ -1,8 +1,8 @@
 /**
- * @file      midi2c.c
- * @brief     Standard MIDI File (.mid) to C Array Converter for STM32
- * @author    Assistant (Refined for Industrial Standards)
- * @details   Extracts note events from a MIDI file and generates a monophonic C array 
+ * @file     midi2c.c
+ * @brief    Standard MIDI File (.mid) to C Array Converter for STM32
+ * @author   Assistant (Refined for Industrial Standards)
+ * @details  Extracts note events from a MIDI file and generates a monophonic C array 
  * containing MIDI note numbers and durations (ms).
  */
 
@@ -116,18 +116,23 @@ int main(int argc, char *argv[]) {
                 // Handle Meta Events
                 else if (status == 0xFF) { 
                     uint8_t meta_type; 
-                    fread(&meta_type, 1, 1, file);
+                    if (fread(&meta_type, 1, 1, file) != 1) break;
                     uint32_t meta_len = read_vlq(file);
                     if (meta_type == 0x51 && meta_len == 3) {
-                        uint8_t b[3]; fread(b, 1, 3, file);
-                        tempo = (b[0] << 16) | (b[1] << 8) | b[2];
+                        uint8_t b[3]; 
+                        if (fread(b, 1, 3, file) == 3) {
+                            tempo = (b[0] << 16) | (b[1] << 8) | b[2];
+                        }
                     } else {
                         fseek(file, meta_len, SEEK_CUR);
                     }
                 }
                 // Note On
                 else if ((status & 0xF0) == 0x90) { 
-                    uint8_t note, vel; fread(&note, 1, 1, file); fread(&vel, 1, 1, file);
+                    uint8_t note, vel; 
+                    if (fread(&note, 1, 1, file) != 1) break;
+                    if (fread(&vel, 1, 1, file) != 1) break;
+                    
                     if (vel > 0) {
                         if (current_note != 0 && time_accum_ms > 0) {
                             printf("    {NOTE_%d, %d},\n", current_note, time_accum_ms);
@@ -137,6 +142,7 @@ int main(int argc, char *argv[]) {
                         current_note = note;
                         time_accum_ms = 0;
                     } else { 
+                        // Note on with 0 velocity acts as Note Off
                         if (current_note == note && time_accum_ms > 0) {
                             printf("    {NOTE_%d, %d},\n", current_note, time_accum_ms);
                             current_note = 0;
@@ -144,9 +150,12 @@ int main(int argc, char *argv[]) {
                         }
                     }
                 }
-                // Note Off
+                // Note Off (Fixed Variable 'file')
                 else if ((status & 0xF0) == 0x80) { 
-                    uint8_t note, vel; fread(&note, 1, 1, f); fread(&vel, 1, 1, file);
+                    uint8_t note, vel; 
+                    if (fread(&note, 1, 1, file) != 1) break;
+                    if (fread(&vel, 1, 1, file) != 1) break;
+                    
                     if (current_note == note && time_accum_ms > 0) {
                         printf("    {NOTE_%d, %d},\n", current_note, time_accum_ms);
                         current_note = 0;

@@ -34,7 +34,9 @@ typedef struct {
 } AudioNote_t;
 ```
 
-Simply paste the generated array into your project's ```main.c``` and use your audio driver to play it.
+Simply paste the generated array into your project's `main.c` and use your audio driver to play it.
+
+song.mid & song.txt is an example.
 
 
 

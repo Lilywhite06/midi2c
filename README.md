@@ -29,14 +29,15 @@ Or save directly to a header file:
 The output is compatible with the following structure:
 ```c
 typedef struct {
-    uint8_t note;      // MIDI Note Number (e.g., 60 for C4)
-    uint32_t duration; // Duration in milliseconds
+    uint16_t frequency; // Frequency in Hz (e.g., 987 for B5). 0 indicates a rest.
+    uint32_t duration;  // Duration in milliseconds
 } AudioNote_t;
 ```
 
-Simply paste the generated array into your project's `main.c` and use your audio driver to play it.
+Simply paste the generated array into your project's `main.c` and use the `frequency` value directly to set your timer's ARR (Auto-Reload Register) for PWM output.
 
-song.mid & song.txt is an example.
+### Example
+song.mid --> song.txt
 
 
 

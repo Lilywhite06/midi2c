@@ -76,6 +76,14 @@ int main(int argc, char *argv[]) {
 
     read_uint32_be(file);           // Skip header length
     uint16_t format = read_uint16_be(file); 
+    
+    // Warn user about Format 1 potential tempo map synchronization issues
+    if (format == 1) {
+        fprintf(stderr, "\n[WARNING] Format 1 (Multi-Track) MIDI detected.\n");
+        fprintf(stderr, "If this song contains tempo changes, timing might become inaccurate across tracks.\n");
+        fprintf(stderr, "For the most precise results, please export your MIDI as Format 0 (Single Track).\n\n");
+    }
+    
     read_uint16_be(file);           // Skip track count
     uint16_t division = read_uint16_be(file); 
     
@@ -98,6 +106,7 @@ int main(int argc, char *argv[]) {
         
         if (strncmp(chunk_type, "MTrk", 4) == 0) {
             track_count++;
+            last_status = 0; // Reset running status at the beginning of each new track to prevent bleed-over
             uint32_t current_note = 0;
             uint32_t time_accum_ms = 0;
             
@@ -108,7 +117,9 @@ int main(int argc, char *argv[]) {
                 
                 // Tick to ms conversion with 64-bit overflow protection
                 if (division > 0) {
-                    time_accum_ms += (uint32_t)(((uint64_t)delta_ticks * tempo) / ((uint64_t)division * 1000));
+                    uint64_t dividend = ((uint64_t)delta_ticks * tempo) + ((uint64_t)division * 500); // Add half divisor for rounding
+                    uint64_t divisor = (uint64_t)division * 1000;
+                    time_accum_ms += (uint32_t)(dividend / divisor);
                 }
 
                 uint8_t status;

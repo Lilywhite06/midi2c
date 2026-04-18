@@ -1,9 +1,7 @@
-/* Auto-generated Frequency Array (Hz, ms) for STM32 (Source: song.mid) */
-/* Format 1 (Multi-Track) detected: Global Tempo Map synchronized. */
+/* Auto-generated Frequency Array (Hz, ms) for STM32 */
+/* Source: song.mid | Track: All */
+/* Format 1 detected: Global Tempo Map active. */
 const AudioNote_t my_new_melody[] = {
-
-    // --- Track 1 Start ---
-    // --- Track 1 End ---
 
     // --- Track 2 Start ---
     {622, 217},
@@ -346,4 +344,6 @@ const AudioNote_t my_new_melody[] = {
     {587, 218},
     {659, 435},
     // --- Track 3 End ---
+
+    {0, 0} // [End of File Sentinel]
 };

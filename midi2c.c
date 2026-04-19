@@ -62,13 +62,19 @@ uint32_t read_vlq(FILE *file) {
 }
 
 /**
- * @brief  Scans the key state array to find the highest currently pressed note
+ * @brief  Scans the key state timestamp array to find the most recently pressed note.
+ *         Implements Last-Note Priority (Legato / Trill behavior) for monophonic synthesizers.
  */
-uint8_t get_active_highest_note(const uint8_t *key_state) {
-    for (int i = 127; i >= 0; i--) {
-        if (key_state[i]) return i;
+uint8_t get_active_latest_note(const uint32_t *key_state_ts) {
+    uint32_t max_ts = 0;
+    uint8_t latest_note = 0;
+    for (int i = 0; i < 128; i++) {
+        if (key_state_ts[i] > max_ts) {
+            max_ts = key_state_ts[i];
+            latest_note = i;
+        }
     }
-    return 0; // 0 indicates no note is currently pressed (Rest)
+    return latest_note; // 0 indicates no note is currently pressed (Rest)
 }
 
 /**
@@ -106,6 +112,7 @@ uint32_t tick_to_ms(uint32_t target_tick, uint16_t division) {
     uint32_t remaining_ticks = target_tick - current_tick;
     total_time_accum += (uint64_t)remaining_ticks * current_tempo;
 
+    // Perform a single division at the very end to eliminate floating-point drift
     uint64_t dividend = total_time_accum + ((uint64_t)division * 500);
     return (uint32_t)(dividend / ((uint64_t)division * 1000));
 }
@@ -114,7 +121,7 @@ int main(int argc, char *argv[]) {
     const char *filename = "song.mid";
     int target_track = -1; // -1 means extract all tracks
 
-    // Parse CLI arguments
+    // Parse CLI arguments for specific track targeting
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
             target_track = atoi(argv[i + 1]);
@@ -178,6 +185,7 @@ int main(int argc, char *argv[]) {
                 uint8_t status;
                 if (fread(&status, 1, 1, file) != 1) break;
 
+                // Handle Running Status
                 if (status < 0x80) {
                     status = last_status;
                     fseek(file, -1, SEEK_CUR);
@@ -193,27 +201,26 @@ int main(int argc, char *argv[]) {
                     if (fread(&meta_type, 1, 1, file) != 1) break;
                     uint32_t meta_len = read_vlq(file);
 
+                    // Capture Tempo Event
                     if (meta_type == 0x51 && meta_len == 3) {
                         uint8_t b[3];
                         if (fread(b, 1, 3, file) == 3) {
-                            // Dynamically resize Tempo Map if capacity is reached
+
+                            // Safe reallocation with temporary pointer
                             if (tempo_count >= tempo_capacity) {
                                 size_t new_capacity = tempo_capacity * 2;
-                                TempoEvent_t *temp_map = (TempoEvent_t *)realloc(
-                                    tempo_map, new_capacity * sizeof(TempoEvent_t));
+                                TempoEvent_t *temp_map = (TempoEvent_t *)realloc(tempo_map, new_capacity * sizeof(TempoEvent_t));
 
-                                // Check if reallocation failed
                                 if (!temp_map) {
                                     fprintf(stderr, "\n[FATAL ERROR] Out of memory while expanding Tempo Map.\n");
                                     free(tempo_map);
                                     fclose(file);
                                     return EXIT_FAILURE;
                                 }
-
-                                // Safe to update global pointers
                                 tempo_map = temp_map;
                                 tempo_capacity = new_capacity;
                             }
+
                             tempo_map[tempo_count].absolute_tick = absolute_tick;
                             tempo_map[tempo_count].tempo = (b[0] << 16) | (b[1] << 8) | b[2];
                             tempo_count++;
@@ -226,23 +233,25 @@ int main(int argc, char *argv[]) {
                 } else if (status >= 0x80 && status < 0xF0) {
                     fseek(file, 2, SEEK_CUR);
                 } else {
-                    break; // Fallback: Break out of corrupted track chunk
+                    // Fallback break for unknown/corrupted status bytes
+                    break;
                 }
             }
         }
         fseek(file, track_end_pos, SEEK_SET);
     }
 
+    // Sort the Tempo Map chronologically (essential for Multi-Track Format 1 files)
     if (tempo_count > 0) {
         qsort(tempo_map, tempo_count, sizeof(TempoEvent_t), compare_tempo);
     }
 
     /* ====================================================================
-     * PASS 2: Parse Notes with High-Note Priority & Absolute Time
+     * PASS 2: Parse Notes with Last-Note Priority & Absolute Time Resolution
      * ==================================================================== */
     fseek(file, first_chunk_pos, SEEK_SET);
 
-    printf("/* Auto-generated Frequency Array (Hz, ms) for STM32 */\n");
+    printf("/* Auto-generated Frequency Array (Hz, ms) for Embedded Audio */\n");
     printf("/* Source: %s | Track: %s */\n", filename, (target_track == -1) ? "All" : "Specified");
     if (format == 1) printf("/* Format 1 detected: Global Tempo Map active. */\n");
     printf("const AudioNote_t my_new_melody[] = {\n");
@@ -267,14 +276,16 @@ int main(int argc, char *argv[]) {
             uint32_t last_absolute_ms = 0;
             uint32_t time_accum_ms = 0;
 
-            uint8_t key_state[128] = {0}; // Note Stack for High-Note priority
-            uint8_t current_note = 0;     // The currently sounding note
+            uint32_t key_state_ts[128] = {0}; // Note Stack for Last-Note priority
+            uint32_t event_counter = 1;       // Event timestamp counter
+            uint8_t current_note = 0;         // The currently sounding note
             int track_header_printed = 0;
 
             while (ftell(file) < track_end_pos) {
                 uint32_t delta_ticks = read_vlq(file);
                 absolute_tick += delta_ticks;
 
+                // Convert current absolute tick to absolute ms, and find the delta ms difference
                 if (division > 0) {
                     uint32_t current_absolute_ms = tick_to_ms(absolute_tick, division);
                     uint32_t delta_ms = current_absolute_ms - last_absolute_ms;
@@ -285,6 +296,7 @@ int main(int argc, char *argv[]) {
                 uint8_t status;
                 if (fread(&status, 1, 1, file) != 1) break;
 
+                // Handle Running Status
                 if (status < 0x80) {
                     status = last_status;
                     fseek(file, -1, SEEK_CUR);
@@ -299,24 +311,25 @@ int main(int argc, char *argv[]) {
                     uint8_t meta_type;
                     if (fread(&meta_type, 1, 1, file) != 1) break;
                     uint32_t meta_len = read_vlq(file);
+                    // Pass 2 ignores tempo changes since they are already mapped
                     fseek(file, meta_len, SEEK_CUR);
                 } else if ((status & 0xF0) == 0x90 || (status & 0xF0) == 0x80) {
-                    // Handle Note On & Note Off uniformly using Key State Array
+                    // Handle Note On & Note Off uniformly using the Timestamp Stack
                     uint8_t note, vel;
                     if (fread(&note, 1, 1, file) != 1) break;
                     if (fread(&vel, 1, 1, file) != 1) break;
 
                     // Note Off (0x80) OR Note On with 0 velocity
                     if ((status & 0xF0) == 0x80 || vel == 0) {
-                        key_state[note & 0x7F] = 0;
+                        key_state_ts[note & 0x7F] = 0;               // Clear timestamp on release
                     } else {
-                        key_state[note & 0x7F] = 1;
+                        key_state_ts[note & 0x7F] = event_counter++; // Assign latest timestamp on press
                     }
 
-                    // Evaluate if the highest currently pressed note has changed
-                    uint8_t new_highest_note = get_active_highest_note(key_state);
+                    // Evaluate if the active note has changed based on the latest timestamp
+                    uint8_t new_latest_note = get_active_latest_note(key_state_ts);
 
-                    if (new_highest_note != current_note) {
+                    if (new_latest_note != current_note) {
                         if (time_accum_ms > 0) {
                             if (!track_header_printed) {
                                 printf("\n    // --- Track %d Start ---\n", track_count);
@@ -329,7 +342,7 @@ int main(int argc, char *argv[]) {
                                 printf("    {0, %u}, // Rest\n", time_accum_ms);
                             }
                         }
-                        current_note = new_highest_note;
+                        current_note = new_latest_note;
                         time_accum_ms = 0;
                     }
                 } else if ((status & 0xF0) == 0xC0 || (status & 0xF0) == 0xD0) {
@@ -342,6 +355,7 @@ int main(int argc, char *argv[]) {
                 }
             }
 
+            // Output any trailing note at the end of the track
             if (current_note != 0 && time_accum_ms > 0) {
                 if (!track_header_printed) {
                     printf("\n    // --- Track %d Start ---\n", track_count);
